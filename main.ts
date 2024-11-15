@@ -1,11 +1,17 @@
-import * as path from "jsr:@std/path";
+import { parseArgs } from "jsr:@std/cli/parse-args";
+import { prepareFile } from "./prepareFile.ts"
 
-const PORT: number = 8000;
+const flags = parseArgs(Deno.args, {
+  boolean: ["debug"],
+  string: ["port", "static-path"],
+  default: { port: 8000 },
+});
 
 const MIME_TYPES: { [extention: string]: string } = {
   default: "application/octet-stream",
   html: "text/html; charset=UTF-8",
   js: "application/javascript",
+  json: "application/json",
   css: "text/css",
   png: "image/png",
   jpg: "image/jpg",
@@ -14,60 +20,16 @@ const MIME_TYPES: { [extention: string]: string } = {
   svg: "image/svg+xml",
 };
 
-const STATIC_PATH = path.join(Deno.cwd(), "./static");
-
-const prepareFile = async (url_path: string, _search_params: string) => {
-  const paths = [STATIC_PATH, url_path];
-
-  // #1
-  if (url_path.endsWith("/")) {
-    paths.push("index.html");
-  }
-
-  const filePath = path.join(...paths);
-
-  // #2
-  const pathTraversal = !filePath.startsWith(STATIC_PATH);
-
-  let exists: boolean;
-
-  try {
-    await Deno.lstat(filePath);
-    exists = true
-  } catch (err) {
-    if (!(err instanceof Deno.errors.NotFound)) {
-      throw err;
-    }
-    exists = false
-  }
-
-  const found = !pathTraversal && exists;
-
-  // #3
-  const streamPath = found ? filePath : STATIC_PATH + "/404.html";
-
-  const ext = path.extname(streamPath)
-    .substring(1)
-    .toLowerCase();
-
-  const file = await Deno.open(
-    streamPath,
-    { read: true },
-  );
-
-  const stream = file.readable;
-
-  return { found, ext, stream };
-};
 
 if (import.meta.main) {
-  Deno.serve({ port: PORT }, async (req) => {
+  console.log(`Alive on pid ${Deno.pid} (${Deno.ppid})`)
+  Deno.serve({ port: flags.port }, async (req) => {
     const url = new URL(req.url);
-    const file = await prepareFile(url.pathname, url.search)
+    const file = await prepareFile(url.pathname, new URLSearchParams(url.search))
     const statusCode = file.found ? 200 : 404;
     const mimeType: string = MIME_TYPES[file.ext] || MIME_TYPES.default;
 
-    console.info(`${req.method} ${req.url} ${statusCode}`);
+    console.info(`${req.method} ${req.url} ${statusCode}\t${Object.keys(req.headers)}`);
 
     return new Response(file.stream, {
       status: statusCode,
